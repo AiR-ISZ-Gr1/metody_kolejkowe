@@ -1,118 +1,140 @@
+from typing import AsyncGenerator
+import sys
 import asyncio
 import random
 import numpy as np
 
-# Parametry systemu
-# Intensywność napływu zgłoszeń (średnia liczba zgłoszeń na jednostkę czasu)
-lambda_rate = 10
-mu = 1/0.5        # Średni czas obsługi 1/0.5 = 2 jednostki czasu, mu = 1/średni_czas_obslugi
-K = 5             # Maksymalny rozmiar bufora (kolejki)
-simulation_time = 5  # Całkowity czas symulacji w sekundach
+from loguru import logger
+logger.remove()
+
+
+def log_format(record):
+    level = record["level"].name.rjust(4)
+    source = record["extra"].get("source", "???")
+    return f"{record['time']:YYYY-MM-DD HH:mm:ss} | {level} | [{source}] {record['message']}\n"
+
+
+logger.add(
+    sys.stderr, format=log_format, level="INFO")
+
+
+type Request = int
+type RoutingFn = callable[list[Server], Server]
+type RequestGenerator = callable[[], AsyncGenerator[Request, None]]
 
 
 class Server:
-    def __init__(self, name, buffer_size):
+    def __init__(self, name: str, buffer_size: int, mu: float) -> None:
         self.name = name
-        # Asynchroniczna kolejka
         self.queue = asyncio.Queue(maxsize=buffer_size)
-        self.processed = 0  # Liczba przetworzonych zgłoszeń
-        self.rejected = 0  # Liczba odrzuconych zgłoszeń
+        self.mean_processing_time = mu
 
-    async def process_request(self):
-        """Obsługa żądania – przetwarzanie"""
+        self.processed = 0
+        self.rejected = 0
+
+    async def receive(self, request: Request) -> None:
+        if self.queue.full():
+            self.rejected += 1
+            logger.info(f"❌ Rejected  request {
+                        request:>3} (queue full)", source=self.name)
+            return
+        logger.debug(f"Queueing request {request}", source=self.name)
+        await self.queue.put(request)
+
+    async def simulate_processing_request(self) -> float:
+        processing_time = np.random.exponential(self.mean_processing_time)
+        await asyncio.sleep(processing_time)
+        return processing_time
+
+    async def run(self) -> None:
         while True:
-            request = await self.queue.get()  # Pobierz żądanie z kolejki
-            service_time = np.random.exponential(1/mu)
-            await asyncio.sleep(service_time)  # Symulacja czasu obsługi
+            request = await self.queue.get()
+            processing_time = await self.simulate_processing_request()
+
             self.processed += 1
-            self.queue.task_done()  # Oznacz zadanie jako ukończone
-            print(f"Serwer {self.name} przetworzył zgłoszenie po {
-                  service_time:.2f}s, kolejka: {self.queue.qsize()}/{K}")
+            self.queue.task_done()
+
+            logger.info((f"✅ Processed request {request:>3} "
+                         f"({processing_time:.2f}s)"), source=self.name)
 
 
-class LoadBalancer:
-    def __init__(self, servers):
-        self.servers = servers  # Lista serwerów
+def route_random(servers: list[Server]):
+    return random.choice(servers)
 
-    async def random_routing(self, arrival_rate):
-        """Polityka losowa – kierowanie żądań do losowego serwera"""
+
+def route_shortest_queue(servers: list[Server]):
+    return min(servers, key=lambda s: s.queue.qsize())
+
+
+def create_requests_generator_poisson(lambda_: float) -> AsyncGenerator[Request, None]:
+    async def generator():
+        request = 0
         while True:
-            # Czas między nadejściami
-            await asyncio.sleep(np.random.exponential(1/arrival_rate))
-            server = random.choice(self.servers)
-            if server.queue.full():
-                server.rejected += 1
-                print(f"Zgłoszenie odrzucone przez {
-                      server.name}, kolejka pełna")
-            else:
-                # Dodaj zgłoszenie do kolejki serwera
-                await server.queue.put("request")
-                print(f"Zgłoszenie skierowane do {
-                      server.name}, kolejka: {server.queue.qsize()}/{K}")
+            logger.debug(f"Created request {request}", source="GEN")
+            yield request
+            request += 1
 
-    async def shortest_queue_routing(self, arrival_rate):
-        """Polityka najkrótszej kolejki – kierowanie żądań do serwera z najkrótszą kolejką"""
-        while True:
-            # Czas między nadejściami
-            await asyncio.sleep(np.random.exponential(1/arrival_rate))
-            # Serwer z najkrótszą kolejką
-            server = min(self.servers, key=lambda s: s.queue.qsize())
-            if server.queue.full():
-                server.rejected += 1
-                print(f"Zgłoszenie odrzucone przez {
-                      server.name}, kolejka pełna")
-            else:
-                # Dodaj zgłoszenie do kolejki serwera
-                await server.queue.put("request")
-                print(f"Zgłoszenie skierowane do {
-                      server.name}, kolejka: {server.queue.qsize()}/{K}")
+            wait_time = np.random.exponential(1/lambda_)
+            await asyncio.sleep(wait_time)
+    return generator
 
 
-async def simulate(routing_policy):
-    # Tworzenie serwerów
-    server1 = Server("WS1", K)
-    server2 = Server("WS2", K)
+async def run_load_balancer(servers: list[Server], routing_fn: RoutingFn, request_generator: RequestGenerator):
+    async for request in request_generator():
+        server = routing_fn(servers)
+        logger.debug(f"Routing request {request} to {
+                     server.name}", source="RTR")
+        await server.receive(request)
 
-    servers = [server1, server2]
-    load_balancer = LoadBalancer(servers)
 
-    # Uruchamianie procesów serwerów (async)
-    server_tasks = [asyncio.create_task(
-        server.process_request()) for server in servers]
+async def simulate(
+    num_servers: int,
+    server_buffer_size: int,
+    server_mu: int,
+    routing_fn: RoutingFn,
+    request_generator: RequestGenerator,
+    simulation_time: int,
+) -> None:
+    print(f"\nStart symulacji - polityka {routing_fn.__name__}")
 
-    # Wybór polityki routingu
-    if routing_policy == "random":
-        load_balancer_task = asyncio.create_task(
-            load_balancer.random_routing(lambda_rate))
-    elif routing_policy == "shortest_queue":
-        load_balancer_task = asyncio.create_task(
-            load_balancer.shortest_queue_routing(lambda_rate))
+    servers = [Server(f"WS{i+1}", server_buffer_size, server_mu)
+               for i in range(num_servers)]
 
-    # Czas trwania symulacji
+    processes_sim = [
+        run_load_balancer(servers, routing_fn, request_generator),
+        *[server.run() for server in servers]
+    ]
+    tasks = [asyncio.create_task(process) for process in processes_sim]
+
     await asyncio.sleep(simulation_time)
 
-    # Zatrzymanie symulacji
-    load_balancer_task.cancel()
-    for task in server_tasks:
+    for task in tasks:
         task.cancel()
 
-    # Wyniki
     total_processed = sum([server.processed for server in servers])
     total_rejected = sum([server.rejected for server in servers])
     avg_queue_length = np.mean([server.queue.qsize() for server in servers])
 
-    print(f"\nPolityka: {routing_policy}")
+    print(f"\nPolityka: {routing_fn.__name__}")
     print(f"Przetworzone zgłoszenia: {total_processed}")
     print(f"Odrzucone zgłoszenia: {total_rejected}")
-    print(f"Średnia długość kolejki: {avg_queue_length}")
+    print(f"Zgłoszenia w kolejkach: {
+          sum(server.queue.qsize() for server in servers)}")
+    # TODO: to jest do implementacji
+    # print(f"Średnia długość kolejki: {avg_queue_length}")
 
 
-# Uruchomienie symulacji
 async def main():
-    print("Symulacja z polityką losową:")
-    await simulate("random")
-    print("\nSymulacja z polityką najkrótszej kolejki:")
-    await simulate("shortest_queue")
+    params = dict(
+        num_servers=2,
+        server_buffer_size=5,
+        server_mu=1,  # average time in seconds of how long a server takes to process a request
+        request_generator=create_requests_generator_poisson(lambda_=3),  # average number of incoming requests per second # noqa
+        simulation_time=5,
+    )
 
-# Uruchomienie głównej funkcji
-asyncio.run(main())
+    await simulate(**params, routing_fn=route_random)
+    await simulate(**params, routing_fn=route_shortest_queue)
+
+if __name__ == '__main__':
+    asyncio.run(main())
