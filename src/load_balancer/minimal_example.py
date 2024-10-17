@@ -1,9 +1,9 @@
-from typing import AsyncGenerator
 import sys
 import asyncio
 import random
 import numpy as np
 from loguru import logger
+from typing import AsyncGenerator
 
 
 def log_format(record):
