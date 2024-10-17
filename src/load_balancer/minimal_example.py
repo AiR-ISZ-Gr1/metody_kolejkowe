@@ -3,9 +3,7 @@ import sys
 import asyncio
 import random
 import numpy as np
-
 from loguru import logger
-logger.remove()
 
 
 def log_format(record):
@@ -14,6 +12,7 @@ def log_format(record):
     return f"{record['time']:YYYY-MM-DD HH:mm:ss} | {level} | [{source}] {record['message']}\n"
 
 
+logger.remove()
 logger.add(
     sys.stderr, format=log_format, level="INFO")
 
@@ -58,11 +57,11 @@ class Server:
                          f"({processing_time:.2f}s)"), source=self.name)
 
 
-def route_random(servers: list[Server]):
+def route_random(servers: list[Server]) -> Server:
     return random.choice(servers)
 
 
-def route_shortest_queue(servers: list[Server]):
+def route_shortest_queue(servers: list[Server]) -> Server:
     return min(servers, key=lambda s: s.queue.qsize())
 
 
@@ -79,7 +78,11 @@ def create_requests_generator_poisson(lambda_: float) -> AsyncGenerator[Request,
     return generator
 
 
-async def run_load_balancer(servers: list[Server], routing_fn: RoutingFn, request_generator: RequestGenerator):
+async def run_load_balancer(
+    servers: list[Server],
+    routing_fn: RoutingFn,
+    request_generator: RequestGenerator
+) -> None:
     async for request in request_generator():
         server = routing_fn(servers)
         logger.debug(f"Routing request {request} to {
@@ -100,11 +103,11 @@ async def simulate(
     servers = [Server(f"WS{i+1}", server_buffer_size, server_mu)
                for i in range(num_servers)]
 
-    processes_sim = [
+    processes = [
         run_load_balancer(servers, routing_fn, request_generator),
         *[server.run() for server in servers]
     ]
-    tasks = [asyncio.create_task(process) for process in processes_sim]
+    tasks = [asyncio.create_task(process) for process in processes]
 
     await asyncio.sleep(simulation_time)
 
@@ -113,7 +116,8 @@ async def simulate(
 
     total_processed = sum([server.processed for server in servers])
     total_rejected = sum([server.rejected for server in servers])
-    avg_queue_length = np.mean([server.queue.qsize() for server in servers])
+    avg_queue_length = np.mean(
+        [np.mean(server.queue.qsize()) for server in servers])
 
     print(f"\nPolityka: {routing_fn.__name__}")
     print(f"Przetworzone zgłoszenia: {total_processed}")
@@ -128,8 +132,8 @@ async def main():
     params = dict(
         num_servers=2,
         server_buffer_size=5,
-        server_mu=1,  # average time in seconds of how long a server takes to process a request
-        request_generator=create_requests_generator_poisson(lambda_=3),  # average number of incoming requests per second # noqa
+        server_mu=0.7,  # average time in seconds of how long a server takes to process a request
+        request_generator=create_requests_generator_poisson(lambda_=4),  # average number of incoming requests per second # noqa
         simulation_time=5,
     )
 
