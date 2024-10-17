@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 # Parametry systemu
 lambda_rate = 10
 mu = 1 / 0.5
-K = 5
-simulation_time = 5
+K = 20
+simulation_time = 10
 
 class Server:
     def __init__(self, name, buffer_size):
@@ -25,6 +25,7 @@ class Server:
             self.processed += 1
             self.queue.task_done()
             self.queue_lengths.append(self.queue.qsize())  # Rejestracja długości kolejki
+            print(f"[{self.name}] Przetworzono zgłoszenie, czas obsługi: {service_time:.2f}s, długość kolejki: {self.queue.qsize()}")
 
 class LoadBalancer:
     def __init__(self, servers):
@@ -36,8 +37,10 @@ class LoadBalancer:
             server = random.choice(self.servers)
             if server.queue.full():
                 server.rejected += 1
+                print(f"[{server.name}] Zgłoszenie odrzucone, kolejka pełna! Odrzucone zgłoszenia: {server.rejected}")
             else:
                 await server.queue.put("request")
+                print(f"[{server.name}] Zgłoszenie dodane do kolejki, długość kolejki: {server.queue.qsize()}")
 
     async def shortest_queue_routing(self, arrival_rate):
         while True:
@@ -45,8 +48,11 @@ class LoadBalancer:
             server = min(self.servers, key=lambda s: s.queue.qsize())
             if server.queue.full():
                 server.rejected += 1
+                print(f"[{server.name}] Zgłoszenie odrzucone, kolejka pełna! Odrzucone zgłoszenia: {server.rejected}")
             else:
                 await server.queue.put("request")
+                print(f"[{server.name}] Zgłoszenie dodane do kolejki, długość kolejki: {server.queue.qsize()}")
+
 
 async def simulate(routing_policy):
     server1 = Server("WS1", K)
