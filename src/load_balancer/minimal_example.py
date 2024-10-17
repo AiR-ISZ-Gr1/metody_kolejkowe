@@ -3,6 +3,7 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 import streamlit as st
+from io import BytesIO
 
 # Parametry systemu (domyślne wartości)
 lambda_rate = 10
@@ -76,7 +77,7 @@ async def simulate(routing_policy):
     queue_lengths = [server.queue_lengths for server in servers]
     return total_processed, total_rejected, avg_queue_length, queue_lengths
 
-def plot_results(results, policy_name):
+def plot_results(results, policy_name, params):
     total_processed, total_rejected, avg_queue_length, queue_lengths = results
 
     time_points_ws1 = list(range(len(queue_lengths[0])))
@@ -84,6 +85,7 @@ def plot_results(results, policy_name):
 
     plt.figure(figsize=(12, 8))
 
+    # Wykres długości kolejek
     plt.subplot(2, 1, 1)
     plt.plot(time_points_ws1, queue_lengths[0], label="WS1 Queue Length")
     plt.plot(time_points_ws2, queue_lengths[1], label="WS2 Queue Length")
@@ -91,14 +93,24 @@ def plot_results(results, policy_name):
     plt.xlabel("Time")
     plt.ylabel("Queue Length")
     plt.legend()
+    
+    # Dodaj opis parametrów
+    plt.text(0.5, 0.95, f"λ: {params['lambda_rate']}, 1/μ: {params['mu']:.2f}, K: {params['K']}, Time: {params['simulation_time']}s", 
+             ha='center', va='top', transform=plt.gca().transAxes, fontsize=12)
 
+    # Wykres liczby odrzuconych i przetworzonych zgłoszeń
     plt.subplot(2, 1, 2)
     plt.bar(["Processed", "Rejected"], [total_processed, total_rejected], color=['green', 'red'])
     plt.title(f"{policy_name} - Processed vs Rejected Requests")
 
     plt.tight_layout()
-    st.pyplot(plt)  # Wyświetlenie wykresu w Streamlit
-    plt.close()
+
+    # Zapisz wykres do BytesIO
+    img_bytes = BytesIO()
+    plt.savefig(img_bytes, format='png')
+    plt.close()  # Zamknij wykres, aby uniknąć problemów z pamięcią
+    img_bytes.seek(0)  # Przenieś wskaźnik na początek strumienia
+    return img_bytes
 
 # Streamlit interface
 st.title("Symulacja Load Balancera")
@@ -114,7 +126,23 @@ policy = st.selectbox("Wybierz politykę routingu", ["random", "shortest_queue"]
 if st.button("Uruchom symulację"):
     async def run_simulation():
         results = await simulate(policy)
-        plot_results(results, f"{policy.capitalize()} Routing")
+        img_bytes = plot_results(results, f"{policy.capitalize()} Routing", 
+                                 {"lambda_rate": lambda_rate, "mu": mu, "K": K, "simulation_time": simulation_time})
+
+        # Wyświetl średnie wyniki
+        avg_processed = results[0]
+        avg_rejected = results[1]
+        avg_queue_length = results[2]
+
+        st.write(f"**Średnia liczba przetworzonych zgłoszeń:** {avg_processed}")
+        st.write(f"**Średnia liczba odrzuconych zgłoszeń:** {avg_rejected}")
+        st.write(f"**Średnia długość kolejki:** {avg_queue_length:.2f}")
+
+        # Wyświetlenie wykresu na stronie
+        st.image(img_bytes, caption='Wykres symulacji Load Balancera', use_column_width=True)
+
+        # Dodaj przycisk do pobrania wykresu
+        st.download_button("Pobierz wykres", img_bytes, file_name="simulation_results.png", mime="image/png")
 
     # Uruchomienie symulacji asynchronicznej
     asyncio.run(run_simulation())
