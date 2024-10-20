@@ -1,4 +1,5 @@
 import sys
+import json
 import random
 import asyncio
 import numpy as np
@@ -156,15 +157,16 @@ async def simulate(
             for server in servers
             for log in server.history]
     print("Logi:")
-    print(logs)
+    with open(f"./logs/{routing_fn.__name__}.json", 'w') as f:
+        f.write(json.dumps(logs))
 
 
 async def main():
     params = dict(
         num_servers=2,
         server_buffer_size=5,
-        server_mu=0.7,  # average time in seconds of how long a server takes to process a request
-        request_generator=create_requests_generator_poisson(lambda_=4),  # average number of incoming requests per second # noqa
+        server_mu=0.04,  # average time in seconds of how long a server takes to process a request
+        request_generator=create_requests_generator_poisson(lambda_=50),  # average number of incoming requests per second # noqa
         simulation_time=5,
     )
 
