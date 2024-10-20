@@ -5,6 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      
     volumes:
       - ./data:/data  # Wolumin na lokalny katalog ./data
     ports:

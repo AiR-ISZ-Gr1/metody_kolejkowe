@@ -38,6 +38,7 @@ class Server:
         self.history = []
         self.processed = 0
         self.rejected = 0
+        self.queue_lengths = []  # Lista do przechowywania długości kolejki
 
     def ts(self):
         return (datetime.now() - self.start_time + datetime.min).strftime("%H:%M:%S:%f")[:-3]
@@ -76,6 +77,9 @@ class Server:
             self.history.append(data)
             logger.info((f"✅ Processed request {request:>3} "
                          f"({processing_time:.2f}s)"), **data)
+
+            # Zbieranie długości kolejki w każdej iteracji
+            self.queue_lengths.append(self.queue.qsize())
 
 
 def route_random(servers: list[Server]) -> Server:
@@ -143,7 +147,7 @@ async def simulate(
 
     total_processed = sum([server.processed for server in servers])
     total_rejected = sum([server.rejected for server in servers])
-
+ 
     log_dir = '/data'
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
@@ -151,11 +155,15 @@ async def simulate(
     logs = [log for server in servers for log in server.history]
     with open(f"{log_dir}/{routing_fn.__name__}.json", 'w') as f:
         f.write(json.dumps(logs))
-    
+
+    average_queue_lengths = [np.mean(server.queue_lengths) for server in servers]
+
     return {
         "total_processed": total_processed,
         "total_rejected": total_rejected,
-        "logs": logs
+        "logs": logs,
+        "average_queue_lengths": average_queue_lengths,
+        "server_queue_lengths": [server.queue_lengths for server in servers]  # Długości kolejek serwerów
     }
 
 
@@ -192,23 +200,23 @@ def main():
         st.write(f"Przetworzone zgłoszenia: {results['total_processed']}")
         st.write(f"Odrzucone zgłoszenia: {results['total_rejected']}")
 
-        # Tworzymy wykresy
-        processed_requests = [log['request'] for log in results['logs'] if log['status'] == 'processed']
-        rejected_requests = [log['request'] for log in results['logs'] if log['status'] == 'rejected']
+        # Tworzymy wykresy średniej długości kolejki w czasie
+        for i, server in enumerate(results["server_queue_lengths"], start=1):
+            plt.figure(figsize=(12, 6))
+            plt.plot(server, label=f'Serwer {i}', marker='o')
+            plt.title("Średnia długość kolejki w czasie")
+            plt.xlabel("Czas")
+            plt.ylabel("Długość kolejki")
+            plt.legend()
+            st.pyplot(plt)
 
+        # Tworzymy wykres średniej długości kolejki od Ro (lambda_)
+        average_queue_length = np.mean(results["average_queue_lengths"])
         plt.figure(figsize=(12, 6))
-        plt.hist(processed_requests, bins=range(0, max(processed_requests) + 1, 1), alpha=0.7, label='Przetworzone zgłoszenia')
-        plt.hist(rejected_requests, bins=range(0, max(rejected_requests) + 1, 1), alpha=0.7, label='Odrzucone zgłoszenia')
-        plt.title("Rozkład zgłoszeń")
-        plt.xlabel("Numer zgłoszenia")
-        plt.ylabel("Liczba zgłoszeń")
-        plt.legend()
+        plt.bar(['Lambda'], [average_queue_length])
+        plt.title("Średnia długość kolejki w zależności od Ro")
+        plt.ylabel("Średnia długość kolejki")
         st.pyplot(plt)
-
-        # Alternatywnie można wykorzystać plotly dla bardziej interaktywnych wykresów
-        # import plotly.express as px
-        # fig = px.histogram(results['logs'], x="request", color="status", title="Rozkład zgłoszeń")
-        # st.plotly_chart(fig)
 
 if __name__ == '__main__':
     main()
