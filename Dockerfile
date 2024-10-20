@@ -21,6 +21,6 @@ COPY --from=builder --chown=app:app /app /app
 
 # Place executables in the environment at the front of the path
 ENV PATH="/app/.venv/bin:$PATH"
-
-# Run the FastAPI application by default
-CMD ["uv", "run", "/app/src/load_balancer/minimal_example.py"]
+VOLUME [ "/data" ]
+EXPOSE 8501
+CMD ["streamlit", "run", "/app/src/load_balancer/app_streamlit.py"]

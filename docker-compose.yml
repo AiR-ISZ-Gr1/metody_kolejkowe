@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./data:/data  # Wolumin na lokalny katalog ./data
+    ports:
+      - "8501:8501"  # Umożliwia dostęp do aplikacji Streamlit na porcie 8501
+    environment:
+      - PYTHONUNBUFFERED=1  # Umożliwia bieżące logowanie
