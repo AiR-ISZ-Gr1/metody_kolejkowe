@@ -1,4 +1,6 @@
+import os
 import sys
+import fire
 import json
 import random
 import asyncio
@@ -37,7 +39,7 @@ class Server:
         self.rejected = 0
 
     def ts(self):
-        return (datetime.now() - self.start_time + datetime.min).strftime("%H:%M:%S:%f")[:-3]
+        return (datetime.now() - self.start_time + datetime.min).strftime("%M:%S:%f")[:-3]
 
     async def receive(self, request: Request) -> None:
         if self.queue.full():
@@ -142,37 +144,60 @@ async def simulate(
 
     total_processed = sum([server.processed for server in servers])
     total_rejected = sum([server.rejected for server in servers])
-    avg_queue_length = np.mean(
-        [np.mean(server.queue.qsize()) for server in servers])
 
     print(f"\nPolityka: {routing_fn.__name__}")
     print(f"Przetworzone zgłoszenia: {total_processed}")
     print(f"Odrzucone zgłoszenia: {total_rejected}")
     print(f"Zgłoszenia w kolejkach: {
           sum(server.queue.qsize() for server in servers)}")
-    # TODO: to jest do implementacji
-    # print(f"Średnia długość kolejki: {avg_queue_length}")
 
     logs = [log
             for server in servers
             for log in server.history]
-    print("Logi:")
-    with open(f"./logs/{routing_fn.__name__}.json", 'w') as f:
-        f.write(json.dumps(logs))
+
+    if os.path.exists(".logs/"):
+        with open(f".logs/{routing_fn.__name__}.json", 'w') as f:
+            f.write(json.dumps(logs))
 
 
-async def main():
+async def simulation_cli(
+    num_servers=2,
+    server_buffer_size=5,
+    server_mu=0.04,
+    lambda_=50,
+    simulation_time=5,
+    routing_fn=None,
+):
+    """
+    Run the load balancer simulation with specified parameters.
+
+    Args:
+        num_servers (int): Number of servers.
+        server_buffer_size (int): Size of the server buffer.
+        server_mu (float): Average time (in seconds) a server takes to process a request.
+        lambda_ (float): Average number of incoming requests per second.
+        simulation_time (int): Time to run the simulation (in seconds).
+        routing_fn (str | tuple | None): Routing function(s) to use. Options: 'random', 'shortest_queue'.
+    """
+
     params = dict(
-        num_servers=2,
-        server_buffer_size=5,
-        server_mu=0.04,  # average time in seconds of how long a server takes to process a request
-        request_generator=create_requests_generator_poisson(lambda_=50),  # average number of incoming requests per second # noqa
-        simulation_time=5,
+        num_servers=num_servers,
+        server_buffer_size=server_buffer_size,
+        server_mu=server_mu,
+        request_generator=create_requests_generator_poisson(lambda_=lambda_),
+        simulation_time=simulation_time,
     )
 
-    await simulate(**params, routing_fn=route_random)
-    await simulate(**params, routing_fn=route_shortest_queue)
+    routing_fn = routing_fn or ('random', 'shortest_queue')
+    routing_fn = routing_fn if isinstance(routing_fn, tuple) else (routing_fn,)
+
+    for fn_name in routing_fn:
+        routing_fn = globals().get(f'route_{fn_name}')
+        if not routing_fn:
+            raise ValueError(f"Unknown routing function: {fn_name}."
+                             " Use 'random' or 'shortest_queue'.")
+        await simulate(**params, routing_fn=routing_fn)
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    fire.Fire(simulation_cli)

@@ -10,17 +10,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 
-# Then, use a final image without uv
 FROM python:3.12-slim-bookworm
-# It is important to use the image that matches the builder, as the path to the
-# Python executable must be the same, e.g., using `python:3.11-slim-bookworm`
-# will fail.
-
-# Copy the application from the builder
 COPY --from=builder --chown=app:app /app /app
-
-# Place executables in the environment at the front of the path
 ENV PATH="/app/.venv/bin:$PATH"
-
-# Run the FastAPI application by default
-CMD ["uv", "run", "/app/src/load_balancer/minimal_example.py"]
+ENV PYTHONUNBUFFERED="1"
+ENTRYPOINT ["python", "/app/src/load_balancer/simulation.py"]
