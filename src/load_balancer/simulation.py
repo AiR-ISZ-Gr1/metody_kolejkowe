@@ -122,7 +122,7 @@ async def simulate(
     server_mu: int,
     routing_fn: RoutingFn,
     request_generator: RequestGenerator,
-    simulation_time: int,
+    simulation_time: float,
 ) -> None:
     print(f"\nStart symulacji - polityka {routing_fn.__name__}")
 
@@ -158,6 +158,11 @@ async def simulate(
         with open(f".logs/{routing_fn.__name__}.json", 'w') as f:
             f.write(json.dumps(logs))
 
+    return {
+        "total_processed": total_processed,
+        "total_rejected": total_rejected,
+        "logs": logs,
+    }
 
 async def simulation_cli(
     num_servers=2,
