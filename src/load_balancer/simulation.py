@@ -27,11 +27,12 @@ type RequestGenerator = callable[[], AsyncGenerator[Request, None]]
 
 
 class Server:
-    def __init__(self, name: str, buffer_size: int, mu: float, start_time: datetime) -> None:
+    def __init__(self, name: str, buffer_size: int, mu: float, start_time: datetime, logging: bool) -> None:
         self.name = name
         self.queue = asyncio.Queue(maxsize=buffer_size)
         self.mean_processing_time = mu
         self.start_time = start_time
+        self.logging = logging
 
         self.active = True
         self.task = None
@@ -50,8 +51,9 @@ class Server:
 
             data |= dict(status='rejected')
             self.history.append(data)
-            logger.info(f"❌ Rejected  request {
-                        request:>3} (queue full)", **data)
+            if self.logging:
+                logger.info(f"❌ Rejected  request {
+                            request:>3} (queue full)", **data)
             return
         data |= dict(status='queued')
         self.history.append(data)
@@ -91,8 +93,9 @@ class Server:
             data = OrderedDict(ts=self.ts(), source=self.name,
                                request=request, status='processed')
             self.history.append(data)
-            logger.info((f"✅ Processed request {request:>3} "
-                         f"({processing_time:.2f}s)"), **data)
+            if self.logging:
+                logger.info((f"✅ Processed request {request:>3} "
+                            f"({processing_time:.2f}s)"), **data)
 
 
 def route_random(servers: list[Server]) -> Server:
@@ -141,11 +144,12 @@ async def simulate(
     routing_fn: RoutingFn,
     request_generator: RequestGenerator,
     simulation_time: float,
+    logging: bool
 ) -> None:
     print(f"\nStart symulacji - polityka {routing_fn.__name__}")
 
     start_time = datetime.now()
-    servers = [Server(f"WS{i+1}", server_buffer_size, server_mu, start_time)
+    servers = [Server(f"WS{i+1}", server_buffer_size, server_mu, start_time, logging = logging)
                for i in range(num_servers)]
 
     load_balancer_task = asyncio.create_task(
@@ -204,7 +208,9 @@ async def simulation_cli(
     lambda_=50,
     simulation_time=5,
     routing_fn=None,
+    logging = True,
     seed=None,
+
 ):
     """
     Run the load balancer simulation with specified parameters.
@@ -226,17 +232,20 @@ async def simulation_cli(
         server_mu=server_mu,
         request_generator=create_requests_generator_poisson(lambda_=lambda_),
         simulation_time=simulation_time,
+        logging=logging
     )
 
     routing_fn = routing_fn or ('random', 'shortest_queue')
     routing_fn = routing_fn if isinstance(routing_fn, tuple) else (routing_fn,)
 
     for fn_name in routing_fn:
+       
         routing_fn = globals().get(f'route_{fn_name}')
+
         if not routing_fn:
             raise ValueError(f"Unknown routing function: {fn_name}."
                              " Use 'random' or 'shortest_queue'.")
-        await simulate(**params, routing_fn=routing_fn)
+        return await simulate(**params, routing_fn=routing_fn)
 
 
 if __name__ == '__main__':
