@@ -1,10 +1,11 @@
+import io
 import asyncio
 import numpy as np
 import streamlit as st  # Import streamlit
 import matplotlib.pyplot as plt  # Import matplotlib
 from visual_functions import process_queue_data, plot_buffer_levels, plot_processing_times
 
-from simulation import simulate, route_random, route_shortest_queue, create_requests_generator_poisson
+from simulation import simulate, route_random, route_shortest_queue, create_requests_generator_poisson, logger, log_format
 
 def main():
     st.title("Symulacja Load Balancera")
@@ -23,6 +24,29 @@ def main():
         routing_fn = route_random if routing_policy == "route_random" else route_shortest_queue
 
         # Uruchamiamy symulację w nowym wątku
+        logs_title = st.title("Status symulacji")
+        log_placeholder = st.empty()
+        log_stream = io.StringIO()
+
+        def custom_log_handler(message):
+            log_stream.write(message)  # Write log message to the string buffer
+            
+            log_lines = log_stream.getvalue().splitlines()[-15:]  # Get last 10 lines
+            while len(log_lines) < 15:
+                log_lines.append(" ")
+            log_content = "\n\n".join(log_lines)  # Join the lines to display
+            
+            # Custom style for the log area (changing the background)
+            log_placeholder.markdown(f"""
+                <div style="background-color: #f0f0f0; padding: 10px; border-radius: 10px;">
+                    <pre style="white-space: pre-wrap; word-wrap: break-word;">{log_content}</pre>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # log_placeholder.text_area("Logger output:", log_stream.getvalue(), height=200)
+        logger.add(custom_log_handler, format=log_format, level="INFO")
+        
+
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         results = loop.run_until_complete(simulate(
@@ -33,6 +57,10 @@ def main():
             request_generator=request_generator,
             simulation_time=simulation_time
         ))
+        
+        logs_title.empty()
+        log_placeholder.empty()
+
 
         # Wyświetlamy wyniki
         st.subheader("Wyniki symulacji:")
