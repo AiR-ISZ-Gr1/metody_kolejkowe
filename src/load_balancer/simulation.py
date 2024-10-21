@@ -147,16 +147,18 @@ async def simulate(
     print(f"\nPolityka: {routing_fn.__name__}")
     print(f"Przetworzone zgłoszenia: {total_processed}")
     print(f"Odrzucone zgłoszenia: {total_rejected}")
-    print(f"Zgłoszenia w kolejkach: {
-          sum(server.queue.qsize() for server in servers)}")
-
+    print(f"Zgłoszenia w kolejkach: {sum(server.queue.qsize() for server in servers)}")
     logs = [log
             for server in servers
             for log in server.history]
-
     if os.path.exists(".logs/"):
-        with open(f".logs/{routing_fn.__name__}.json", 'w') as f:
+
+        num = 0
+        while os.path.exists(f'.logs/{routing_fn.__name__}_{num}.json'):
+            num += 1
+        with open(f".logs/{routing_fn.__name__}_{num}.json", 'w') as f:
             f.write(json.dumps(logs))
+            
 
     return {
         "total_processed": total_processed,
