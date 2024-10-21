@@ -13,7 +13,7 @@ from typing import AsyncGenerator, OrderedDict
 def log_format(record):
     level = record["level"].name.rjust(4)
     source = record["extra"].get("source", "???")
-    time = record["extra"].get("ts") or f"{record['time']:HH:mm:ss.SSS}"
+    time = record["extra"].get("ts") or f"{record['time']:mm:ss.SSS}"
     return f"{time} | {level} | [{source}] {record['message']}\n"
 
 
@@ -34,6 +34,9 @@ class Server:
         self.start_time = start_time
         self.logging = logging
 
+        self.active = True
+        self.task = None
+
         self.history = []
         self.processed = 0
         self.rejected = 0
@@ -42,18 +45,17 @@ class Server:
         return (datetime.now() - self.start_time + datetime.min).strftime("%M:%S:%f")[:-3]
 
     async def receive(self, request: Request) -> None:
+        data = OrderedDict(ts=self.ts(), source=self.name, request=request)
         if self.queue.full():
             self.rejected += 1
 
-            data = OrderedDict(ts=self.ts(), source=self.name,
-                               request=request, status='rejected')
+            data |= dict(status='rejected')
             self.history.append(data)
             if self.logging:
                 logger.info(f"❌ Rejected  request {
                             request:>3} (queue full)", **data)
             return
-        data = OrderedDict(ts=self.ts(), source=self.name,
-                           request=request, status='queued')
+        data |= dict(status='queued')
         self.history.append(data)
         logger.debug(f"Queueing request {request}", source=self.name)
 
@@ -64,8 +66,24 @@ class Server:
         await asyncio.sleep(processing_time)
         return processing_time
 
-    async def run(self) -> None:
-        while True:
+    def start(self):
+        if self.task:
+            self.task.cancel()
+        self.task = asyncio.create_task(self._run())
+        self.active = True
+
+    async def shutdown(self):
+        self.active = False
+        if not self.task:
+            return
+        if self.queue.empty():
+            self.task.cancel()
+        else:
+            await self.task
+        self.task = None
+
+    async def _run(self) -> None:
+        while self.active or not self.queue.empty():
             request = await self.queue.get()
             processing_time = await self.simulate_processing_request()
 
@@ -122,7 +140,7 @@ async def run_load_balancer(
 async def simulate(
     num_servers: int,
     server_buffer_size: int,
-    server_mu: int,
+    server_mu: float,
     routing_fn: RoutingFn,
     request_generator: RequestGenerator,
     simulation_time: float,
@@ -134,16 +152,16 @@ async def simulate(
     servers = [Server(f"WS{i+1}", server_buffer_size, server_mu, start_time, logging = logging)
                for i in range(num_servers)]
 
-    processes = [
-        run_load_balancer(servers, routing_fn, request_generator),
-        *[server.run() for server in servers]
-    ]
-    tasks = [asyncio.create_task(process) for process in processes]
+    load_balancer_task = asyncio.create_task(
+        run_load_balancer(servers, routing_fn, request_generator))
+    for server in servers:
+        server.start()
 
     await asyncio.sleep(simulation_time)
 
-    for task in tasks:
-        task.cancel()
+    load_balancer_task.cancel()
+    for server in servers:
+        await server.shutdown()
 
     total_processed = sum([server.processed for server in servers])
     total_rejected = sum([server.rejected for server in servers])
@@ -151,7 +169,7 @@ async def simulate(
     print(f"\nPolityka: {routing_fn.__name__}")
     print(f"Przetworzone zgłoszenia: {total_processed}")
     print(f"Odrzucone zgłoszenia: {total_rejected}")
-    print(f"Zgłoszenia w kolejkach: {sum(server.queue.qsize() for server in servers)}")
+
     logs = [log
             for server in servers
             for log in server.history]
@@ -182,6 +200,7 @@ async def simulate(
         "path_to_logs": log_path
     }
 
+
 async def simulation_cli(
     num_servers=2,
     server_buffer_size=5,
@@ -189,7 +208,9 @@ async def simulation_cli(
     lambda_=50,
     simulation_time=5,
     routing_fn=None,
-    logging = True
+    logging = True,
+    seed=None,
+
 ):
     """
     Run the load balancer simulation with specified parameters.
@@ -199,9 +220,11 @@ async def simulation_cli(
         server_buffer_size (int): Size of the server buffer.
         server_mu (float): Average time (in seconds) a server takes to process a request.
         lambda_ (float): Average number of incoming requests per second.
-        simulation_time (int): Time to run the simulation (in seconds).
+        simulation_time (float): Time to run the simulation (in seconds).
         routing_fn (str | tuple | None): Routing function(s) to use. Options: 'random', 'shortest_queue'.
+        seed (int): Random Number Generator's seed.
     """
+    np.random.seed(seed)
 
     params = dict(
         num_servers=num_servers,
