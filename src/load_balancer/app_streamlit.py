@@ -2,6 +2,7 @@ import asyncio
 import numpy as np
 import streamlit as st  # Import streamlit
 import matplotlib.pyplot as plt  # Import matplotlib
+from visual_functions import process_queue_data, plot_buffer_levels, plot_processing_times
 
 from simulation import simulate, route_random, route_shortest_queue, create_requests_generator_poisson
 
@@ -37,24 +38,17 @@ def main():
         st.subheader("Wyniki symulacji:")
         st.write(f"Przetworzone zgłoszenia: {results['total_processed']}")
         st.write(f"Odrzucone zgłoszenia: {results['total_rejected']}")
+        
+        file_path = results["path_to_logs"]
+        data_df, result, rejects = process_queue_data(file_path)
+        data_df[data_df['source'] == 'WS2']
+        max_buffer = 3  # Set the maximum buffer level as needed
+        plot_buffer_levels(data_df, rejects, max_buffer)
+        plot_processing_times(result)
+        
+        
+        
 
-        # Tworzymy wykresy średniej długości kolejki w czasie
-        # for i, server in enumerate(results["server_queue_lengths"], start=1):
-        #     plt.figure(figsize=(12, 6))
-        #     plt.plot(server, label=f'Serwer {i}', marker='o')
-        #     plt.title("Średnia długość kolejki w czasie")
-        #     plt.xlabel("Czas")
-        #     plt.ylabel("Długość kolejki")
-        #     plt.legend()
-        #     st.pyplot(plt)
-
-        # Tworzymy wykres średniej długości kolejki od Ro (lambda_)
-        # average_queue_length = np.mean(results["average_queue_lengths"])
-        # plt.figure(figsize=(12, 6))
-        # plt.bar(['Lambda'], [average_queue_length])
-        # plt.title("Średnia długość kolejki w zależności od Ro")
-        # plt.ylabel("Średnia długość kolejki")
-        # st.pyplot(plt)
 
 if __name__ == '__main__':
     main()
