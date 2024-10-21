@@ -169,15 +169,31 @@ async def simulate(
     logs = [log
             for server in servers
             for log in server.history]
+    log_path = None
+    log_dir = ".logs/"
 
-    if os.path.exists(".logs/"):
-        with open(f".logs/{routing_fn.__name__}.json", 'w') as f:
-            f.write(json.dumps(logs))
+    # Ensure that the directory exists, if not, create it
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
+    num = 0
+    log_path = f"{log_dir}/{routing_fn.__name__}_{num}.json"
+    while os.path.exists(f'{log_path}_{num}.json'):
+        num += 1
+    log_path = f"{log_dir}/{routing_fn.__name__}_{num}.json"
+
+    # Now log_path is always initialized
+    with open(log_path, 'w') as f:
+        f.write(json.dumps(logs))
+            
+        
+            
 
     return {
         "total_processed": total_processed,
         "total_rejected": total_rejected,
         "logs": logs,
+        "path_to_logs": log_path
     }
 
 
