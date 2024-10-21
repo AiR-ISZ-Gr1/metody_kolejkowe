@@ -69,7 +69,7 @@ def main():
         
         file_path = results["path_to_logs"]
         data_df, result, rejects = process_queue_data(file_path)
-        data_df[data_df['source'] == 'WS2']
+        # data_df[data_df['source'] == 'WS2']
         max_buffer = server_buffer_size + 1  # Set the maximum buffer level as needed
         plot_buffer_levels(data_df, rejects, max_buffer)
         plot_processing_times(result)
