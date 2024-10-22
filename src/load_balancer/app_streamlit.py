@@ -55,7 +55,8 @@ def main():
             server_mu=server_mu,
             routing_fn=routing_fn,
             request_generator=request_generator,
-            simulation_time=simulation_time
+            simulation_time=simulation_time,
+            logging=True
         ))
         
         logs_title.empty()
